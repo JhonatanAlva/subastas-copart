@@ -8,13 +8,13 @@ import { CheckCircle, AlertCircle, Clock, Gavel, Edit } from "lucide-react";
 export const VehicleDetail = () => {
   const { id } = useParams();
   const { currentUser } = useAuth();
-  
+
   const [vehicle, setVehicle] = useState(null);
   const [selectedPhoto, setSelectedPhoto] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  
+
   // Módulo de pujas
   const [bidAmount, setBidAmount] = useState("");
   const [bidding, setBidding] = useState(false);
@@ -29,7 +29,7 @@ export const VehicleDetail = () => {
     hours: 0,
     minutes: 0,
     seconds: 0,
-    isExpired: false
+    isExpired: false,
   });
 
   // Escuchar cambios en tiempo real en Firestore (pujas en vivo)
@@ -53,7 +53,7 @@ export const VehicleDetail = () => {
       (err) => {
         setError("Error al escuchar cambios en tiempo real: " + err.message);
         setLoading(false);
-      }
+      },
     );
 
     return () => unsubscribe();
@@ -64,12 +64,20 @@ export const VehicleDetail = () => {
     if (!vehicle?.parametrosSubasta?.fechaCierre) return;
 
     const calculateTimeLeft = () => {
-      const targetDate = new Date(vehicle.parametrosSubasta.fechaCierre).getTime();
+      const targetDate = new Date(
+        vehicle.parametrosSubasta.fechaCierre,
+      ).getTime();
       const now = new Date().getTime();
       const difference = targetDate - now;
 
       if (difference <= 0) {
-        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true });
+        setTimeLeft({
+          days: 0,
+          hours: 0,
+          minutes: 0,
+          seconds: 0,
+          isExpired: true,
+        });
         return;
       }
 
@@ -87,43 +95,51 @@ export const VehicleDetail = () => {
     return () => clearInterval(timer);
   }, [vehicle]);
 
-  const isOwner = currentUser && vehicle && currentUser.uid === vehicle.publisherUid;
+  const isOwner =
+    currentUser && vehicle && currentUser.uid === vehicle.publisherUid;
 
   // Realizar Puja
+  // Realizar Puja con Cooldown / Bloqueador Antispam
   const handleBidSubmit = async (e) => {
     e.preventDefault();
-    if (!currentUser) return setError("Debes iniciar sesión para realizar una oferta.");
-    if (isOwner) return setError("No puedes realizar ofertas en tu propio vehículo.");
+    if (!currentUser)
+      return setError("Debes iniciar sesión para realizar una oferta.");
+    if (isOwner)
+      return setError("No puedes realizar ofertas en tu propio vehículo.");
     if (timeLeft.isExpired) return setError("Esta subasta ha finalizado.");
+    if (bidding) return; // Bloquea múltiples envíos si ya está procesando una puja
 
     const numericBid = Number(bidAmount);
     if (numericBid <= vehicle.ofertaActual) {
-      return setError(`La oferta debe ser superior a Q. ${vehicle.ofertaActual.toLocaleString()}`);
+      return setError(
+        `La oferta debe ser superior a Q. ${vehicle.ofertaActual.toLocaleString()}`,
+      );
     }
 
     try {
-      setBidding(true);
+      setBidding(true); // Activa el estado de bloqueo
       setError("");
-      
+
       const docRef = doc(db, "vehicles", id);
       const newTotalBids = (vehicle.totalPujas || 0) + 1;
 
       await updateDoc(docRef, {
         ofertaActual: numericBid,
         ultimoPostorUid: currentUser.uid,
-        totalPujas: newTotalBids
+        totalPujas: newTotalBids,
       });
 
-      // Alerta de éxito con borrado automático tras 3 segundos
       setSuccess("¡Oferta registrada con éxito!");
       setTimeout(() => {
         setSuccess("");
       }, 3000);
 
-      setBidAmount((numericBid + 500).toString());
+      // Bloqueador temporal de 1.5 segundos antes de permitir la siguiente puja
+      setTimeout(() => {
+        setBidding(false);
+      }, 1500);
     } catch (err) {
       setError("Error al registrar la puja: " + err.message);
-    } finally {
       setBidding(false);
     }
   };
@@ -135,7 +151,8 @@ export const VehicleDetail = () => {
       const docRef = doc(db, "vehicles", id);
       await updateDoc(docRef, {
         "parametrosSubasta.precioBase": Number(editPrice),
-        ofertaActual: vehicle.totalPujas === 0 ? Number(editPrice) : vehicle.ofertaActual
+        ofertaActual:
+          vehicle.totalPujas === 0 ? Number(editPrice) : vehicle.ofertaActual,
       });
 
       setIsEditing(false);
@@ -150,8 +167,18 @@ export const VehicleDetail = () => {
     }
   };
 
-  if (loading) return <div className="text-center my-12 text-slate-600">Cargando detalles del vehículo...</div>;
-  if (!vehicle) return <div className="text-center my-12 text-red-600">{error || "Vehículo no encontrado."}</div>;
+  if (loading)
+    return (
+      <div className="text-center my-12 text-slate-600">
+        Cargando detalles del vehículo...
+      </div>
+    );
+  if (!vehicle)
+    return (
+      <div className="text-center my-12 text-red-600">
+        {error || "Vehículo no encontrado."}
+      </div>
+    );
 
   return (
     <div className="max-w-6xl mx-auto my-10 px-4">
@@ -173,7 +200,11 @@ export const VehicleDetail = () => {
         {/* Galería de Fotos */}
         <div>
           <div className="h-80 bg-slate-100 rounded-2xl overflow-hidden border border-gray-200">
-            <img src={selectedPhoto} alt="Vehículo" className="w-full h-full object-cover" />
+            <img
+              src={selectedPhoto}
+              alt="Vehículo"
+              className="w-full h-full object-cover"
+            />
           </div>
 
           <div className="grid grid-cols-5 gap-2 mt-4">
@@ -182,10 +213,16 @@ export const VehicleDetail = () => {
                 key={index}
                 onClick={() => setSelectedPhoto(photo)}
                 className={`h-16 rounded-lg overflow-hidden border-2 transition ${
-                  selectedPhoto === photo ? "border-blue-600" : "border-gray-200 opacity-70"
+                  selectedPhoto === photo
+                    ? "border-blue-600"
+                    : "border-gray-200 opacity-70"
                 }`}
               >
-                <img src={photo} alt={`Miniatura ${index + 1}`} className="w-full h-full object-cover" />
+                <img
+                  src={photo}
+                  alt={`Miniatura ${index + 1}`}
+                  className="w-full h-full object-cover"
+                />
               </button>
             ))}
           </div>
@@ -197,9 +234,12 @@ export const VehicleDetail = () => {
             <div className="flex justify-between items-start">
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">
-                  {vehicle.fichaTecnica?.marca} {vehicle.fichaTecnica?.modelo} {vehicle.fichaTecnica?.anio}
+                  {vehicle.fichaTecnica?.marca} {vehicle.fichaTecnica?.modelo}{" "}
+                  {vehicle.fichaTecnica?.anio}
                 </h1>
-                <p className="text-xs font-medium text-gray-400 uppercase mt-1">{vehicle.fichaTecnica?.tipoArticulo}</p>
+                <p className="text-xs font-medium text-gray-400 uppercase mt-1">
+                  {vehicle.fichaTecnica?.tipoArticulo}
+                </p>
               </div>
 
               {isOwner && (
@@ -236,9 +276,13 @@ export const VehicleDetail = () => {
             {/* Estado de Edición del Vendedor */}
             {isEditing ? (
               <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-gray-200 space-y-3">
-                <h4 className="text-xs font-bold uppercase text-slate-700">Editar Precio Base</h4>
+                <h4 className="text-xs font-bold uppercase text-slate-700">
+                  Editar Precio Base
+                </h4>
                 <div>
-                  <label className="text-xs text-gray-500">Monto Base (Q.)</label>
+                  <label className="text-xs text-gray-500">
+                    Monto Base (Q.)
+                  </label>
                   <input
                     type="number"
                     value={editPrice}
@@ -256,12 +300,20 @@ export const VehicleDetail = () => {
             ) : (
               <div className="mt-4 p-4 bg-slate-50 rounded-xl flex justify-between items-center">
                 <div>
-                  <span className="text-xs text-gray-400 uppercase block">Oferta Actual</span>
-                  <span className="text-2xl font-black text-blue-600">Q. {vehicle.ofertaActual?.toLocaleString()}</span>
+                  <span className="text-xs text-gray-400 uppercase block">
+                    Oferta Actual
+                  </span>
+                  <span className="text-2xl font-black text-blue-600">
+                    Q. {vehicle.ofertaActual?.toLocaleString()}
+                  </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs text-gray-400 uppercase block">Total Pujas</span>
-                  <span className="text-sm font-bold text-slate-700">{vehicle.totalPujas || 0} pujas</span>
+                  <span className="text-xs text-gray-400 uppercase block">
+                    Total Pujas
+                  </span>
+                  <span className="text-sm font-bold text-slate-700">
+                    {vehicle.totalPujas || 0} pujas
+                  </span>
                 </div>
               </div>
             )}
@@ -269,7 +321,9 @@ export const VehicleDetail = () => {
             {/* Panel de Ofertas para Compradores */}
             {!isOwner && (
               <form onSubmit={handleBidSubmit} className="mt-6 border-t pt-4">
-                <label className="block text-xs font-semibold text-slate-700 uppercase mb-2">Ingresa tu Oferta (Q.)</label>
+                <label className="block text-xs font-semibold text-slate-700 uppercase mb-2">
+                  Ingresa tu Oferta (Q.)
+                </label>
                 <div className="flex gap-2">
                   <input
                     type="number"
@@ -293,14 +347,42 @@ export const VehicleDetail = () => {
 
             {/* Ficha Técnica Detallada */}
             <div className="mt-6 border-t pt-4">
-              <h3 className="text-xs font-bold text-slate-700 uppercase mb-3">Ficha Técnica</h3>
+              <h3 className="text-xs font-bold text-slate-700 uppercase mb-3">
+                Ficha Técnica
+              </h3>
               <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
-                <div><span className="font-semibold text-gray-400">Motor:</span> {vehicle.fichaTecnica?.motor}</div>
-                <div><span className="font-semibold text-gray-400">Transmisión:</span> {vehicle.fichaTecnica?.transmision}</div>
-                <div><span className="font-semibold text-gray-400">Combustible:</span> {vehicle.fichaTecnica?.combustible}</div>
-                <div><span className="font-semibold text-gray-400">Tren de Manejo:</span> {vehicle.fichaTecnica?.trenManejo}</div>
-                <div><span className="font-semibold text-gray-400">Cilindros:</span> {vehicle.fichaTecnica?.cilindros}</div>
-                <div><span className="font-semibold text-gray-400">Vendedor:</span> {vehicle.publisherEmail}</div>
+                <div>
+                  <span className="font-semibold text-gray-400">Motor:</span>{" "}
+                  {vehicle.fichaTecnica?.motor}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-400">
+                    Transmisión:
+                  </span>{" "}
+                  {vehicle.fichaTecnica?.transmision}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-400">
+                    Combustible:
+                  </span>{" "}
+                  {vehicle.fichaTecnica?.combustible}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-400">
+                    Tren de Manejo:
+                  </span>{" "}
+                  {vehicle.fichaTecnica?.trenManejo}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-400">
+                    Cilindros:
+                  </span>{" "}
+                  {vehicle.fichaTecnica?.cilindros}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-400">Vendedor:</span>{" "}
+                  {vehicle.publisherEmail}
+                </div>
               </div>
             </div>
           </div>
