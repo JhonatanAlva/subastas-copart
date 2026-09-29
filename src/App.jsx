@@ -8,6 +8,7 @@ import { Register } from "./pages/Register";
 import { CreateVehicle } from "./pages/CreateVehicle";
 import { MyVehicles } from "./pages/MyVehicles";
 import { VehicleDetail } from "./pages/VehicleDetail";
+import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
 
 export default function App() {
   return (
@@ -19,9 +20,25 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/registro" element={<Register />} />
-            <Route path="/publicar" element={<CreateVehicle />} />
-            <Route path="/mis-publicaciones" element={<MyVehicles />} />
             <Route path="/vehiculo/:id" element={<VehicleDetail />} />
+
+            {/* Rutas Protegidas por Middleware */}
+            <Route
+              path="/publicar"
+              element={
+                <ProtectedRoute>
+                  <CreateVehicle />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/mis-publicaciones"
+              element={
+                <ProtectedRoute>
+                  <MyVehicles />
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </div>
       </Router>

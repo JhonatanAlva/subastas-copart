@@ -1,78 +1,89 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { auth, db } from "../firebase/config";
 import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut,
-    onAuthStateChanged
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
 } from "firebase/auth";
 import { doc, setDoc, getDoc } from "firebase/firestore";
-import { auth, db } from "../firebase/config";
 
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-    const [currentUser, setCurrentUser] = useState(null);
-    const [userData, setUserData] = useState(null);
-    const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-    // Registro de usuario + datos en Firestore
-    const register = async (email, password, nombre, apellido, telefono) => {
-        const res = await createUserWithEmailAndPassword(auth, email, password);
-        const user = res.user;
+  // Registro con token explícito
+  const register = async (email, password, nombre, apellido, telefono) => {
+    const res = await createUserWithEmailAndPassword(auth, email, password);
+    const token = await res.user.getIdToken();
+    localStorage.setItem("token", token);
 
-        await setDoc(doc(db, "users", user.uid), {
-            uid: user.uid,
-            nombre,
-            apellido,
-            email,
-            telefono,
-            createdAt: new Date().toISOString()
-        });
+    await setDoc(doc(db, "users", res.user.uid), {
+      uid: res.user.uid,
+      nombre,
+      apellido,
+      email,
+      telefono,
+      createdAt: new Date().toISOString(),
+    });
+  };
 
-        return user;
-    };
+  // Login guardando token
+  const login = async (email, password) => {
+    const res = await signInWithEmailAndPassword(auth, email, password);
+    const token = await res.user.getIdToken();
+    localStorage.setItem("token", token);
+    return res;
+  };
 
-    // Login
-    const login = (email, password) => {
-        return signInWithEmailAndPassword(auth, email, password);
-    };
+  // Cierre de sesión con limpieza TOTAL de tokens
+  const logout = async () => {
+    localStorage.removeItem("token");
+    localStorage.clear();
+    await signOut(auth);
+    setCurrentUser(null);
+    setUserData(null);
+  };
 
-    // Logout
-    const logout = () => {
-        return signOut(auth);
-    };
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        const token = await user.getIdToken();
+        localStorage.setItem("token", token);
 
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            setCurrentUser(user);
-            if (user) {
-                const docRef = doc(db, "users", user.uid);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    setUserData(docSnap.data());
-                }
-            } else {
-                setUserData(null);
-            }
-            setLoading(false);
-        });
+        // Cargar datos adicionales del usuario desde Firestore
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          setUserData(userDoc.data());
+        }
+      } else {
+        setCurrentUser(null);
+        setUserData(null);
+        localStorage.removeItem("token");
+      }
+      setLoading(false);
+    });
 
-        return unsubscribe;
-    }, []);
+    return unsubscribe;
+  }, []);
 
-    const value = {
-        currentUser,
-        userData,
-        register,
-        login,
-        logout
-    };
+  const value = {
+    currentUser,
+    userData,
+    register,
+    login,
+    logout,
+  };
 
-    return (
-        <AuthContext.Provider value={value}>
-            {!loading && children}
-        </AuthContext.Provider>
-    );
+  return (
+    <AuthContext.Provider value={value}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
 };
