@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { db } from "../firebase/config";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { CheckCircle, AlertCircle, Clock, Gavel, Edit } from "lucide-react";
 
@@ -32,28 +32,31 @@ export const VehicleDetail = () => {
     isExpired: false
   });
 
+  // Escuchar cambios en tiempo real en Firestore (pujas en vivo)
   useEffect(() => {
-    const fetchVehicle = async () => {
-      try {
-        const docRef = doc(db, "vehicles", id);
-        const docSnap = await getDoc(docRef);
+    const docRef = doc(db, "vehicles", id);
+
+    const unsubscribe = onSnapshot(
+      docRef,
+      (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setVehicle(data);
-          setSelectedPhoto(data.fotos?.[0] || "");
+          setSelectedPhoto((prev) => prev || data.fotos?.[0] || "");
           setEditPrice(data.parametrosSubasta?.precioBase || 0);
           setBidAmount((data.ofertaActual + 500).toString());
         } else {
           setError("El vehículo solicitado no existe.");
         }
-      } catch (err) {
-        setError("Error al cargar los detalles: " + err.message);
-      } finally {
+        setLoading(false);
+      },
+      (err) => {
+        setError("Error al escuchar cambios en tiempo real: " + err.message);
         setLoading(false);
       }
-    };
+    );
 
-    fetchVehicle();
+    return () => unsubscribe();
   }, [id]);
 
   // Hook para calcular el temporizador en tiempo real
@@ -111,13 +114,6 @@ export const VehicleDetail = () => {
         totalPujas: newTotalBids
       });
 
-      setVehicle((prev) => ({
-        ...prev,
-        ofertaActual: numericBid,
-        totalPujas: newTotalBids,
-        ultimoPostorUid: currentUser.uid
-      }));
-
       // Alerta de éxito con borrado automático tras 3 segundos
       setSuccess("¡Oferta registrada con éxito!");
       setTimeout(() => {
@@ -141,12 +137,6 @@ export const VehicleDetail = () => {
         "parametrosSubasta.precioBase": Number(editPrice),
         ofertaActual: vehicle.totalPujas === 0 ? Number(editPrice) : vehicle.ofertaActual
       });
-
-      setVehicle((prev) => ({
-        ...prev,
-        parametrosSubasta: { ...prev.parametrosSubasta, precioBase: Number(editPrice) },
-        ofertaActual: prev.totalPujas === 0 ? Number(editPrice) : prev.ofertaActual
-      }));
 
       setIsEditing(false);
       setSuccess("Publicación actualizada correctamente.");
